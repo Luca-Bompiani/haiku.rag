@@ -43,6 +43,7 @@ class DocumentMetadataCache:
     """
 
     def __init__(self, db_path: Path) -> None:
+        db_path.mkdir(parents=True, exist_ok=True)
         cache_file = db_path / ".metadata_cache.db"
         self._conn = sqlite3.connect(str(cache_file), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
