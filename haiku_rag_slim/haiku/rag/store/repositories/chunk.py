@@ -430,7 +430,9 @@ class ChunkRepository:
         document_ids = list(set(chunk.document_id for chunk in pydantic_results))
 
         # Batch fetch document metadata — prefer cache, fall back to LanceDB with projection
-        documents_map: dict[str, object] = {}
+        from haiku.rag.store.cache import DocumentMeta
+
+        documents_map: dict[str, DocumentMeta] = {}
         if document_ids:
             cache = self.store.metadata_cache
             miss_ids = document_ids
@@ -450,37 +452,30 @@ class ChunkRepository:
                     .to_list()
                 )
                 for row in rows:
-                    documents_map[row["id"]] = row
+                    meta_json = row.get("metadata", "{}")
+                    doc_meta_obj = DocumentMeta(
+                        id=row["id"],
+                        uri=row.get("uri"),
+                        title=row.get("title"),
+                        metadata=json.loads(meta_json),
+                    )
+                    documents_map[row["id"]] = doc_meta_obj
                     if cache is not None:
-                        cache.put(row["id"], row.get("uri"), row.get("title"), row.get("metadata", "{}"))
+                        cache.put(row["id"], row.get("uri"), row.get("title"), meta_json)
 
         # Build final results with document info
         chunks_with_scores = []
         for i, chunk_record in enumerate(pydantic_results):
             doc = documents_map.get(chunk_record.document_id)
-            if doc is None:
-                doc_uri = doc_title = None
-                doc_meta: dict = {}
-            elif hasattr(doc, "uri"):
-                # DocumentMeta from cache
-                doc_uri = doc.uri
-                doc_title = doc.title
-                doc_meta = doc.metadata
-            else:
-                # dict from LanceDB select()
-                doc_uri = doc.uri
-                doc_title = doc.title
-                doc_meta = json.loads(doc.metadata if doc else "{}")
-
             chunk = Chunk(
                 id=chunk_record.id,
                 document_id=chunk_record.document_id,
                 content=chunk_record.content,
                 metadata=json.loads(chunk_record.metadata),
                 order=chunk_record.order,
-                document_uri=doc_uri,
-                document_title=doc_title,
-                document_meta=doc_meta,
+                document_uri=doc.uri if doc else None,
+                document_title=doc.title if doc else None,
+                document_meta=doc.metadata if doc else {},
             )
             score = scores[i] if i < len(scores) else 1.0
             chunks_with_scores.append((chunk, score))
