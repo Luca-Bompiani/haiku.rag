@@ -151,11 +151,30 @@ class Store:
 
             cache_root = config.storage.data_dir if self._has_cloud_config() else db_path
             self.metadata_cache = DocumentMetadataCache(cache_root)
+            if self.metadata_cache.is_empty():
+                self._warmup_metadata_cache()
 
     @property
     def is_read_only(self) -> bool:
         """Whether the store is in read-only mode."""
         return self._read_only
+
+    def _warmup_metadata_cache(self) -> None:
+        """Load all document metadata into the SQLite cache on first use."""
+        assert self.metadata_cache is not None
+        try:
+            rows = (
+                self.documents_table.search()
+                .select(["id", "uri", "title", "metadata"])
+                .to_list()
+            )
+            if rows:
+                self.metadata_cache.put_many(
+                    [(r["id"], r.get("uri"), r.get("title"), r.get("metadata", "{}")) for r in rows]
+                )
+                logger.info("Metadata cache warmed up with %d documents", len(rows))
+        except Exception:
+            logger.debug("Metadata cache warmup skipped — no documents yet")
 
     def _get_stored_vector_dim(self) -> int | None:
         """Read the stored vector dimension from the settings table.

@@ -115,5 +115,9 @@ class DocumentMetadataCache:
         self._conn.execute("DELETE FROM document_meta")
         self._conn.commit()
 
+    def is_empty(self) -> bool:
+        row = self._conn.execute("SELECT 1 FROM document_meta LIMIT 1").fetchone()
+        return row is None
+
     def close(self) -> None:
         self._conn.close()
