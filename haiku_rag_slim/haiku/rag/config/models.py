@@ -47,6 +47,7 @@ class StorageConfig(BaseModel):
     data_dir: Path = Field(default_factory=get_default_data_dir)
     auto_vacuum: bool = True
     vacuum_retention_seconds: int = 86400
+    metadata_cache: bool = False
 
 
 class MonitorConfig(BaseModel):
@@ -175,6 +176,7 @@ class ProcessingConfig(BaseModel):
 class SearchConfig(BaseModel):
     limit: int = 5
     context_radius: int = 0
+    context_expansion: Literal["auto", "chunks"] = "auto"
     max_context_items: int = 10
     max_context_chars: int = 10000
     vector_index_metric: Literal["cosine", "l2", "dot"] = "cosine"
@@ -189,6 +191,14 @@ class OllamaConfig(BaseModel):
     )
 
 
+class BedrockConfig(BaseModel):
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_session_token: str = ""
+    region_name: str = ""
+    profile_name: str = ""
+
+
 class DoclingServeConfig(BaseModel):
     base_url: str = "http://localhost:5001"
     api_key: str = ""
@@ -196,6 +206,7 @@ class DoclingServeConfig(BaseModel):
 
 class ProvidersConfig(BaseModel):
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    bedrock: BedrockConfig = Field(default_factory=BedrockConfig)
     docling_serve: DoclingServeConfig = Field(default_factory=DoclingServeConfig)
 
 

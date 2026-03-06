@@ -429,32 +429,58 @@ class ChunkRepository:
         # Collect all unique document IDs for batch lookup
         document_ids = list(set(chunk.document_id for chunk in pydantic_results))
 
-        # Batch fetch all documents at once
-        documents_map = {}
+        # Batch fetch document metadata — prefer cache, fall back to LanceDB with projection
+        documents_map: dict[str, object] = {}
         if document_ids:
-            # Use IN clause for efficient batch lookup
-            id_list = "', '".join(document_ids)
-            where_clause = f"id IN ('{id_list}')"
-            doc_results = list(
-                self.store.documents_table.search()
-                .where(where_clause)
-                .to_pydantic(DocumentRecord)
-            )
-            documents_map = {doc.id: doc for doc in doc_results}
+            cache = self.store.metadata_cache
+            miss_ids = document_ids
+
+            if cache is not None:
+                cached = cache.get_many(document_ids)
+                documents_map.update(cached)
+                miss_ids = [d for d in document_ids if d not in cached]
+
+            if miss_ids:
+                id_list = "', '".join(miss_ids)
+                where_clause = f"id IN ('{id_list}')"
+                rows = (
+                    self.store.documents_table.search()
+                    .where(where_clause)
+                    .select(["id", "uri", "title", "metadata"])
+                    .to_list()
+                )
+                for row in rows:
+                    documents_map[row["id"]] = row
+                    if cache is not None:
+                        cache.put(row["id"], row.get("uri"), row.get("title"), row.get("metadata", "{}"))
 
         # Build final results with document info
         chunks_with_scores = []
         for i, chunk_record in enumerate(pydantic_results):
             doc = documents_map.get(chunk_record.document_id)
+            if doc is None:
+                doc_uri = doc_title = None
+                doc_meta: dict = {}
+            elif hasattr(doc, "uri"):
+                # DocumentMeta from cache
+                doc_uri = doc.uri
+                doc_title = doc.title
+                doc_meta = doc.metadata
+            else:
+                # dict from LanceDB select()
+                doc_uri = doc.uri
+                doc_title = doc.title
+                doc_meta = json.loads(doc.metadata if doc else "{}")
+
             chunk = Chunk(
                 id=chunk_record.id,
                 document_id=chunk_record.document_id,
                 content=chunk_record.content,
                 metadata=json.loads(chunk_record.metadata),
                 order=chunk_record.order,
-                document_uri=doc.uri if doc else None,
-                document_title=doc.title if doc else None,
-                document_meta=json.loads(doc.metadata if doc else "{}"),
+                document_uri=doc_uri,
+                document_title=doc_title,
+                document_meta=doc_meta,
             )
             score = scores[i] if i < len(scores) else 1.0
             chunks_with_scores.append((chunk, score))

@@ -73,6 +73,12 @@ class DocumentRepository:
         entity.id = doc_id
         entity.created_at = datetime.fromisoformat(now)
         entity.updated_at = datetime.fromisoformat(now)
+
+        if self.store.metadata_cache is not None:
+            self.store.metadata_cache.put(
+                doc_id, entity.uri, entity.title, json.dumps(entity.metadata)
+            )
+
         return entity
 
     async def get_by_id(self, entity_id: str) -> Document | None:
@@ -119,6 +125,11 @@ class DocumentRepository:
             },
         )
 
+        if self.store.metadata_cache is not None:
+            self.store.metadata_cache.put(
+                entity.id, entity.uri, entity.title, json.dumps(entity.metadata)
+            )
+
         return entity
 
     async def delete(self, entity_id: str) -> bool:
@@ -133,6 +144,8 @@ class DocumentRepository:
 
         # Invalidate cache before delete
         invalidate_docling_document_cache(entity_id)
+        if self.store.metadata_cache is not None:
+            self.store.metadata_cache.remove(entity_id)
 
         # Delete associated chunks first
         await self.chunk_repository.delete_by_document_id(entity_id)
@@ -226,6 +239,9 @@ class DocumentRepository:
         self.store._assert_writable()
         # Delete all chunks first
         await self.chunk_repository.delete_all()
+
+        if self.store.metadata_cache is not None:
+            self.store.metadata_cache.clear()
 
         # Get count before deletion
         count = len(

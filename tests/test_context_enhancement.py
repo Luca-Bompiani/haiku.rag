@@ -768,3 +768,38 @@ async def test_expand_context_no_base64_images_docling_serve(temp_db_path):
                 assert "data:image" not in result.content.lower(), (
                     f"Found 'data:image' in expanded content: {result.content[:500]}"
                 )
+
+
+@pytest.mark.vcr()
+async def test_expand_context_chunks_mode_skips_docling(temp_db_path):
+    """Test that context_expansion='chunks' forces chunk-based expansion."""
+    config = AppConfig()
+    config.search.context_radius = 1
+    config.search.context_expansion = "chunks"
+
+    markdown_content = """# Section 1
+
+Paragraph one about topic A.
+
+Paragraph two about topic B.
+
+Paragraph three about topic C.
+"""
+
+    async with HaikuRAG(temp_db_path, config=config, create=True) as client:
+        doc = await client.create_document(
+            content=markdown_content,
+            uri="test://chunks-mode",
+        )
+
+        assert doc.id is not None
+        assert doc.docling_document is not None
+
+        chunks = await client.chunk_repository.get_by_document_id(doc.id)
+        assert len(chunks) >= 2
+
+        search_results = [SearchResult.from_chunk(chunks[0], 0.9)]
+        expanded = await client.expand_context(search_results)
+
+        assert len(expanded) >= 1
+        assert expanded[0].score == 0.9

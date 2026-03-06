@@ -1113,37 +1113,36 @@ class HaikuRAG:
                 expanded_results.extend(doc_results)
                 continue
 
-            # Fetch the document to get DoclingDocument
-            doc = await self.get_document_by_id(doc_id)
-            if doc is None:
-                expanded_results.extend(doc_results)
-                continue
+            use_docling = self._config.search.context_expansion == "auto"
 
-            docling_doc = doc.get_docling_document()
+            if use_docling:
+                doc = await self.get_document_by_id(doc_id)
+                if doc is None:
+                    expanded_results.extend(doc_results)
+                    continue
 
-            # Check if we can use DoclingDocument-based expansion
-            has_docling = docling_doc is not None
-            has_refs = any(r.doc_item_refs for r in doc_results)
+                docling_doc = doc.get_docling_document()
+                has_docling = docling_doc is not None
+                has_refs = any(r.doc_item_refs for r in doc_results)
 
-            if has_docling and has_refs:
-                # Use DoclingDocument-based expansion
-                expanded = await self._expand_with_docling(
-                    doc_results,
-                    docling_doc,
-                    radius,
-                    max_items,
-                    max_chars,
+                if has_docling and has_refs:
+                    expanded = await self._expand_with_docling(
+                        doc_results,
+                        docling_doc,
+                        radius,
+                        max_items,
+                        max_chars,
+                    )
+                    expanded_results.extend(expanded)
+                    continue
+
+            if radius > 0:
+                expanded = await self._expand_with_chunks(
+                    doc_id, doc_results, radius
                 )
                 expanded_results.extend(expanded)
             else:
-                # Fall back to chunk-based expansion (always uses fixed radius)
-                if radius > 0:
-                    expanded = await self._expand_with_chunks(
-                        doc_id, doc_results, radius
-                    )
-                    expanded_results.extend(expanded)
-                else:
-                    expanded_results.extend(doc_results)
+                expanded_results.extend(doc_results)
 
         return expanded_results
 

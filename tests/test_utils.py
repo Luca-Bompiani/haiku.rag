@@ -313,6 +313,30 @@ def test_get_model_bedrock_with_thinking():
     assert isinstance(result, BedrockConverseModel)
 
 
+@pytest.mark.skipif(not HAS_BEDROCK, reason="Bedrock not installed")
+def test_get_model_bedrock_with_credentials():
+    """Test get_model passes aws_credentials from AppConfig to BedrockProvider."""
+    from pydantic_ai.models.bedrock import BedrockConverseModel
+
+    from haiku.rag.config.models import AppConfig, BedrockConfig, ProvidersConfig
+
+    app_config = AppConfig(
+        providers=ProvidersConfig(
+            bedrock=BedrockConfig(
+                aws_access_key_id="test-key-id",
+                aws_secret_access_key="test-secret",
+                region_name="us-west-2",
+            )
+        )
+    )
+    model_config = ModelConfig(
+        provider="bedrock", name="anthropic.claude-3-5-sonnet-20241022-v2:0"
+    )
+    result = get_model(model_config, app_config=app_config)
+    assert isinstance(result, BedrockConverseModel)
+    assert result._provider.client.meta.region_name == "us-west-2"
+    
+
 def test_get_model_unknown_provider():
     """Test get_model returns string format for unknown providers."""
     model_config = ModelConfig(provider="mistral", name="mistral-large-latest")

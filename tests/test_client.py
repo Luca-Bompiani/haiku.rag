@@ -1467,3 +1467,78 @@ async def test_sql_injection_is_blocked_with_escaping(temp_db_path):
             filter=f"title = '{injection_payload}'"
         )
         assert len(docs_unescaped) == 2  # SQL injection succeeds without escaping
+
+
+@pytest.mark.vcr()
+async def test_metadata_cache_populates_on_create(temp_db_path):
+    """Test that metadata cache is populated when documents are created."""
+    from haiku.rag.config.models import AppConfig
+
+    config = AppConfig()
+    config.storage.metadata_cache = True
+
+    async with HaikuRAG(temp_db_path, config=config, create=True) as client:
+        doc = await client.create_document(
+            content="Cache test content",
+            uri="test://cache",
+            title="Cache Doc",
+            metadata={"key": "value"},
+        )
+        assert doc.id is not None
+
+        cache = client._store.metadata_cache
+        assert cache is not None
+
+        cached = cache.get(doc.id)
+        assert cached is not None
+        assert cached.uri == "test://cache"
+        assert cached.title == "Cache Doc"
+        assert cached.metadata == {"key": "value"}
+
+
+@pytest.mark.vcr()
+async def test_metadata_cache_used_in_search(temp_db_path):
+    """Test that search uses the metadata cache instead of fetching full DocumentRecords."""
+    from haiku.rag.config.models import AppConfig
+
+    config = AppConfig()
+    config.storage.metadata_cache = True
+
+    async with HaikuRAG(temp_db_path, config=config, create=True) as client:
+        doc = await client.create_document(
+            content="Searchable content about caching strategies",
+            uri="test://cached-search",
+            title="Cached Search Doc",
+        )
+        assert doc.id is not None
+
+        results = await client.search("caching strategies")
+        assert len(results) >= 1
+        assert results[0].document_uri == "test://cached-search"
+        assert results[0].document_title == "Cached Search Doc"
+
+
+@pytest.mark.vcr()
+async def test_metadata_cache_invalidated_on_delete(temp_db_path):
+    """Test that metadata cache entry is removed when document is deleted."""
+    from haiku.rag.config.models import AppConfig
+
+    config = AppConfig()
+    config.storage.metadata_cache = True
+
+    async with HaikuRAG(temp_db_path, config=config, create=True) as client:
+        doc = await client.create_document(content="To be deleted", uri="test://delete")
+        assert doc.id is not None
+
+        cache = client._store.metadata_cache
+        assert cache.get(doc.id) is not None
+
+        await client.delete_document(doc.id)
+        assert cache.get(doc.id) is None
+
+
+@pytest.mark.vcr()
+async def test_metadata_cache_disabled_by_default(temp_db_path):
+    """Test that metadata cache is not created when disabled (default)."""
+    async with HaikuRAG(temp_db_path, create=True) as client:
+        assert client._store.metadata_cache is None

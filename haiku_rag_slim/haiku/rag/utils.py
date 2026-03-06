@@ -262,6 +262,7 @@ def get_model(
             BedrockConverseModel,
             BedrockModelSettings,
         )
+        from pydantic_ai.providers.bedrock import BedrockProvider
 
         bedrock_settings: Any = None
 
@@ -299,7 +300,16 @@ def get_model(
             bedrock_settings, BedrockModelSettings, model_config
         )
 
-        return BedrockConverseModel(model_name=model, settings=bedrock_settings)
+        bedrock_provider_kwargs = {k: v
+            for k, v in app_config.providers.bedrock.model_dump().items()
+            if v
+        }
+
+        return BedrockConverseModel(
+            model_name=model,
+            provider=BedrockProvider(**bedrock_provider_kwargs),
+            settings=bedrock_settings,
+        )
 
     else:
         # For any other provider, use string format and let Pydantic AI handle it

@@ -4,10 +4,13 @@ import logging
 from datetime import datetime, timedelta
 from importlib import metadata
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import lancedb
+
+if TYPE_CHECKING:
+    from haiku.rag.store.cache import DocumentMetadataCache
 import pyarrow as pa
 from lancedb.pydantic import LanceModel, Vector
 from pydantic import Field
@@ -140,6 +143,14 @@ class Store:
         # Validate config compatibility after connection is established
         if not skip_validation:
             self._validate_configuration()
+
+        # Initialize metadata cache if enabled
+        self.metadata_cache: "DocumentMetadataCache | None" = None
+        if config.storage.metadata_cache:
+            from haiku.rag.store.cache import DocumentMetadataCache
+
+            cache_root = config.storage.data_dir if self._has_cloud_config() else db_path
+            self.metadata_cache = DocumentMetadataCache(cache_root)
 
     @property
     def is_read_only(self) -> bool:
@@ -488,9 +499,9 @@ class Store:
         )
 
     def close(self):
-        """Close the database connection."""
-        # LanceDB connections are automatically managed
-        pass
+        """Close the database connection and associated resources."""
+        if self.metadata_cache is not None:
+            self.metadata_cache.close()
 
     def current_table_versions(self) -> dict[str, int]:
         """Capture current versions of key tables for rollback using LanceDB's API."""
