@@ -38,8 +38,9 @@ class DocumentMeta:
 class DocumentMetadataCache:
     """Write-through SQLite cache for document metadata.
 
-    The cache lives in a single file next to the LanceDB database and is
-    safe to delete at any time (it will be repopulated on the next write).
+    All reads and writes go through the local SQLite file, which is
+    orders of magnitude faster than querying cloud storage and uses
+    constant memory regardless of dataset size.
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -48,8 +49,12 @@ class DocumentMetadataCache:
         self._conn = sqlite3.connect(str(cache_file), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA cache_size=-65536")  # 64 MB page cache
         self._conn.execute(_SCHEMA)
         self._conn.commit()
+        count = self._conn.execute("SELECT COUNT(*) FROM document_meta").fetchone()[0]
+        if count:
+            logger.info("Metadata cache: %d entries available", count)
 
     # ── reads ────────────────────────────────────────────────────────────
 
@@ -114,6 +119,23 @@ class DocumentMetadataCache:
     def clear(self) -> None:
         self._conn.execute("DELETE FROM document_meta")
         self._conn.commit()
+
+    # ── filtering ────────────────────────────────────────────────────────
+
+    def filter_ids(self, where_clause: str) -> list[str] | None:
+        """Resolve a SQL WHERE clause against cached metadata.
+
+        Returns matching document IDs, or None if the clause references
+        columns not present in the cache (caller should fall back to the
+        source table).
+        """
+        try:
+            rows = self._conn.execute(
+                f"SELECT id FROM document_meta WHERE {where_clause}"
+            ).fetchall()
+            return [row[0] for row in rows]
+        except sqlite3.OperationalError:
+            return None
 
     def is_empty(self) -> bool:
         row = self._conn.execute("SELECT 1 FROM document_meta LIMIT 1").fetchone()

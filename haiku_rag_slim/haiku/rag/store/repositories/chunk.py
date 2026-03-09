@@ -236,22 +236,28 @@ class ChunkRepository:
         """
         if not query.strip():
             return []
-        filtered_doc_ids = None
+        chunk_where: str | None = None
         if filter:
-            # We perform filtering as a two-step process, first filtering documents, then
-            # filtering chunks based on those document IDs.
-            # This is because LanceDB does not support joins directly in search queries.
-            docs_df = (
-                self.store.documents_table.search()
-                .select(["id"])
-                .where(filter)
-                .to_pandas()
+            cache = self.store.metadata_cache
+            doc_ids: list[str] | None = (
+                cache.filter_ids(filter) if cache is not None else None
             )
-            # Early exit if no documents match the filter
-            if docs_df.empty:
+
+            if doc_ids is None:
+                docs_df = (
+                    self.store.documents_table.search()
+                    .select(["id"])
+                    .where(filter)
+                    .to_pandas()
+                )
+                if docs_df.empty:
+                    return []
+                doc_ids = docs_df["id"].tolist()
+
+            if not doc_ids:
                 return []
-            # Keep as pandas Series for efficient vectorized operations
-            filtered_doc_ids = docs_df["id"]
+            id_list = "', '".join(doc_ids)
+            chunk_where = f"document_id IN ('{id_list}')"
 
         # Prepare search query based on search type
         if search_type == "vector":
@@ -284,15 +290,9 @@ class ChunkRepository:
                 self.store._config.search.vector_refine_factor
             ).rerank(reranker)
 
-        # Apply filtering if needed (common for all search types)
-        if filtered_doc_ids is not None:
-            chunks_df = results.to_pandas()
-            filtered_chunks_df = chunks_df.loc[
-                chunks_df["document_id"].isin(filtered_doc_ids)
-            ].head(limit)
-            return await self._process_search_results(filtered_chunks_df)
-
-        # No filtering needed, apply limit and return
+        # Apply document filter + limit, then process
+        if chunk_where is not None:
+            results = results.where(chunk_where)
         results = results.limit(limit)
         return await self._process_search_results(results)
 

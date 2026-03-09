@@ -52,6 +52,7 @@ class QuestionAnswerAgent:
             base_filter=filter,
             tool_name="search_documents",
             on_results=accumulated_results.extend,
+            max_calls=self._config.qa.max_iterations,
         )
 
         # Agent created per-call: toolset varies with filter, and Agent
